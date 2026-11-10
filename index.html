@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chunk Lab · Text splitters, visualised</title>
+  <meta name="description" content="An interactive playground that shows how the Character and Recursive Character text splitters cut a document into chunks for RAG.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%2322201c'/><rect x='5' y='8' width='13' height='4' fill='%23ffe270'/><rect x='5' y='14' width='22' height='4' fill='%23ffbdd0'/><rect x='5' y='20' width='17' height='4' fill='%23b3d9ff'/></svg>">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"><i></i><i></i><i></i></span>
+      <div>
+        <h1>Chunk Lab</h1>
+        <p>See how text splitters cut a document into chunks for RAG</p>
+      </div>
+    </div>
+    <nav>
+      <a href="#learn">How it works</a>
+      <a href="https://github.com/alimalim77/text-splitter-playground" target="_blank" rel="noopener">GitHub</a>
+      <button id="themeBtn" class="ghost" type="button" aria-label="Switch colour theme">◐</button>
+    </nav>
+  </header>
+
+  <section class="modes" role="radiogroup" aria-label="Splitter">
+    <label class="mode">
+      <input type="radio" name="mode" value="character">
+      <span class="mode-body">
+        <span class="mode-title">Character splitter</span>
+        <span class="mode-desc">Cuts on <b>one</b> separator, then packs the pieces into chunks. Simple, but a piece with no separator inside can never get smaller.</span>
+        <code>CharacterTextSplitter</code>
+      </span>
+    </label>
+    <label class="mode">
+      <input type="radio" name="mode" value="recursive" checked>
+      <span class="mode-body">
+        <span class="mode-title">Recursive character splitter</span>
+        <span class="mode-desc">Tries a <b>ladder</b> of separators, biggest first. Only the pieces that are still too big get re-split with the next one down.</span>
+        <code>RecursiveCharacterTextSplitter</code>
+      </span>
+    </label>
+  </section>
+
+  <main class="grid">
+    <div class="col">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Editor pad</h2>
+          <span id="padCount" class="dim"></span>
+        </div>
+        <div class="chips" id="samples" aria-label="Sample texts"></div>
+        <textarea id="pad" spellcheck="false" aria-label="Text to split" placeholder="Type or paste any text here…"></textarea>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>Settings</h2></div>
+
+        <div class="field">
+          <label for="chunkSize">chunk_size <span class="dim">max characters per chunk</span></label>
+          <div class="slider">
+            <input id="chunkSize" type="range" min="10" max="500" step="1">
+            <input id="chunkSizeNum" type="number" min="1" max="5000" aria-label="chunk size">
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="overlap">chunk_overlap <span class="dim">characters repeated between neighbours</span></label>
+          <div class="slider">
+            <input id="overlap" type="range" min="0" max="200" step="1">
+            <input id="overlapNum" type="number" min="0" max="5000" aria-label="chunk overlap">
+          </div>
+        </div>
+
+        <div class="field" id="sepCharField">
+          <label>separator <span class="dim">the one string to cut on</span></label>
+          <div class="chips" id="sepChar"></div>
+          <div class="inline">
+            <input id="sepCustom" type="text" placeholder="custom, e.g. ---  or \n" aria-label="Custom separator">
+            <button id="sepCustomBtn" type="button">Use</button>
+          </div>
+        </div>
+
+        <div class="field" id="sepRecField">
+          <label>separators <span class="dim">tried left to right, coarse to fine</span></label>
+          <div class="ladder-edit" id="ladderEdit"></div>
+          <div class="inline">
+            <input id="sepAdd" type="text" placeholder='add, e.g. ". "  (empty = "")' aria-label="Add separator">
+            <button id="sepAddBtn" type="button">Add</button>
+            <button id="sepReset" type="button" class="ghost">Reset</button>
+          </div>
+        </div>
+      </section>
+
+      <details class="panel code-panel" open>
+        <summary><h2>The same thing in LangChain</h2></summary>
+        <pre id="code"></pre>
+        <button id="copyCode" type="button" class="ghost">Copy</button>
+      </details>
+    </div>
+
+    <div class="col">
+      <section class="panel">
+        <div class="stats" id="stats"></div>
+        <ul class="insights" id="insights"></ul>
+      </section>
+
+      <section class="panel viz">
+        <div class="tabs-row">
+          <div class="tabs" role="tablist">
+            <button role="tab" data-view="chunks" type="button">Chunks</button>
+            <button role="tab" data-view="steps" type="button">Step through</button>
+            <button role="tab" data-view="compare" type="button">Compare</button>
+          </div>
+          <label class="check"><input id="showWs" type="checkbox"> show whitespace</label>
+        </div>
+
+        <div id="view-chunks" class="view">
+          <p class="hint">Each colour is one chunk. <span class="swatch ov"></span> Striped text sits in two chunks at once: that is the overlap. Uncoloured text was dropped (separators and trimmed whitespace).</p>
+          <div id="textOut" class="text-view"></div>
+          <div id="cards" class="cards"></div>
+        </div>
+
+        <div id="view-steps" class="view" hidden>
+          <div class="stepper">
+            <button id="stepFirst" type="button" title="Back to start">⏮</button>
+            <button id="stepPrev" type="button" title="Previous step (←)">◀</button>
+            <button id="stepPlay" type="button" class="primary">▶ Play</button>
+            <button id="stepNext" type="button" title="Next step (→)">▶</button>
+            <button id="stepNextChunk" type="button" title="Jump to the next emitted chunk">Next chunk ⏭</button>
+            <select id="stepSpeed" aria-label="Playback speed">
+              <option value="900">slow</option>
+              <option value="450" selected>normal</option>
+              <option value="120">fast</option>
+            </select>
+            <span id="stepLabel" class="dim"></span>
+          </div>
+          <input id="stepSlider" type="range" min="0" max="0" value="0" aria-label="Step">
+          <div id="ladder" class="ladder"></div>
+          <div id="narr" class="narr" aria-live="polite"></div>
+          <div id="meter" class="meter"></div>
+          <div id="stepText" class="text-view step-text"></div>
+          <p class="legend">
+            <span><i class="lg cur"></i> piece being looked at</span>
+            <span><i class="lg buf"></i> in the buffer</span>
+            <span><i class="lg dropped"></i> dropped from buffer</span>
+            <span><i class="lg k0"></i> already emitted</span>
+          </p>
+        </div>
+
+        <div id="view-compare" class="view" hidden>
+          <p class="hint">Same text, same chunk_size and chunk_overlap, both splitters. Each bar is one chunk; the dashed line is chunk_size.</p>
+          <div id="compare"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <section id="learn" class="learn">
+    <h2>How it works</h2>
+    <div class="learn-grid">
+      <article>
+        <h3>Why split at all?</h3>
+        <p>In a RAG pipeline you embed pieces of your documents and retrieve the few that match a question. A chunk has to be small enough to embed well and fit in the prompt, and large enough to still make sense on its own. The splitter decides where the cuts go.</p>
+        <p><b>chunk_size</b> is the ceiling on chunk length. <b>chunk_overlap</b> repeats the tail of one chunk at the head of the next, so a sentence that straddles a cut is still whole in one of them.</p>
+      </article>
+      <article>
+        <h3>Character splitter</h3>
+        <ol>
+          <li><b>Split</b> the whole text on one separator (default <code>"\n\n"</code>). The separator is thrown away.</li>
+          <li><b>Merge</b>: add pieces to a buffer one at a time. When the next piece would push the buffer past chunk_size, join the buffer with the separator and emit it as a chunk.</li>
+          <li><b>Overlap</b>: drop pieces from the front of the buffer until what remains is at most chunk_overlap. The remainder starts the next chunk.</li>
+        </ol>
+        <p class="note">It never cuts inside a piece. A 2,000-character paragraph stays a 2,000-character chunk.</p>
+      </article>
+      <article>
+        <h3>Recursive character splitter</h3>
+        <ol>
+          <li>Take the first separator on the ladder that appears in the text (default ladder: <code>"\n\n"</code>, <code>"\n"</code>, <code>" "</code>, <code>""</code>).</li>
+          <li>Split on it, keeping the separator attached to the piece that follows.</li>
+          <li>Pieces smaller than chunk_size go through the same <b>merge</b> step as above.</li>
+          <li>A piece that is still too big is <b>split again</b> with the rest of the ladder. That is the recursion.</li>
+        </ol>
+        <p class="note">With <code>""</code> at the bottom of the ladder, every chunk is guaranteed to fit, and cuts land on the most meaningful boundary available.</p>
+      </article>
+      <article>
+        <h3>Things to try</h3>
+        <ul>
+          <li>Load <i>No blank lines</i> with the character splitter, then switch to recursive.</li>
+          <li>Set chunk_overlap to 0, then raise it, and watch the striped regions grow.</li>
+          <li>Remove <code>""</code> and <code>" "</code> from the ladder and shrink chunk_size.</li>
+          <li>Add <code>". "</code> above <code>" "</code> so chunks prefer to end on sentences.</li>
+          <li>Press <i>Play</i> in Step through and watch the buffer fill, flush and keep its tail.</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <footer>
+    <p>Built by <a href="https://github.com/alimalim77" target="_blank" rel="noopener">Alim Mohammad</a> as part of an AI engineering teaching series. The splitting logic mirrors <code>langchain_text_splitters</code>; lengths are counted in characters.</p>
+  </footer>
+
+  <script src="js/splitter.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
